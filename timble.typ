@@ -134,9 +134,14 @@
     width: auto,
     height: auto,
 ) = context {
+    // Internal number of columns per day to use for splitting into parallel
+    // events.
+    let day-col-division = 12
+
     // Variable that tracks at which row the actual timeslots start.
     let y-start = if title != none { 2 } else { 1 }
-    // STYLING
+
+    // =============================== STYLING ===============================
     // Sets manual text font or uses the currently active one otherwise.
     set text(font: if font != auto { font } else { text.font },
         size: base-font-size
@@ -144,10 +149,19 @@
     // Cell styling
     show grid.cell: it => {
         let textsize = if it.x > 0 and it.y > y-start - 1 {
+            let final-size = base-font-size
             // Adjusts the font size based on the available space in the cell.
             if it.rowspan < 8 { 
-                base-font-size / 2 + (it.rowspan - 2) * 1pt
-            } else { base-font-size }
+                final-size = final-size / 2 + (it.rowspan - 2) * 1pt
+            }
+            // If there are parallel events, also adjust the size.
+            if it.colspan < 12 {
+                // Subtracts from the size more for each added parralel layer.
+                // How strong the subtraction is can be controlled by the
+                // multiplier at the end of the line.
+                final-size = final-size - (12 / it.colspan * 1pt) * 1.5
+            }
+            final-size
         } else {
             // This is the font size in the info fields (header).
             base-font-size - 1pt
@@ -158,10 +172,13 @@
         it
     }
 
-    // GRID SETUP
+    // ============================ GRID SETUP ===============================
     // Array that holds the column sizes for the grid.
-    let col-array = (2fr,) * 5
-    col-array.insert(0, 1fr)
+    // The five weekdays are always shown, thus 5 is the starting point.
+    let col-array = (1fr,) * 5 * day-col-division
+    // This is the column for the hour indications.
+    col-array.insert(0, (day-col-division / 2) * 1fr)
+
     // Array that holds the names to use for the header info.
     let header-texts = info-names.slice(0, 6)
     // Array that holds the actual contents to be parsed into cells later.
@@ -169,38 +186,53 @@
 
     // Adding the necessary things if the weekend is included.
     if saturday != () {
-        col-array.push(2fr)
+        // For each added day, we need the number of columns added that a day
+        // is split into.
+        for _ in range(day-col-division) {
+            col-array.push(1fr)
+        }
         header-texts.push(info-names.at(6))
         day-array.push(saturday)
     }
     if sunday != () {
-        col-array.push(2fr)
+        for _ in range(day-col-division) {
+            col-array.push(1fr)
+        }
         header-texts.push(info-names.at(7))
         day-array.push(sunday)
     }
     // Same for the async column
     if asynchronous != () {
-        col-array.push(2fr)
+        for _ in range(day-col-division) {
+            col-array.push(1fr)
+        }
         header-texts.push(info-names.at(8))
         day-array.push(asynchronous)
     }
-    // Final number of columns the timetable uses.
-    let colnum = col-array.len()
 
-    // Actual contents of the header row.
-    let header-row = ()
-    for (i, text) in header-texts.enumerate() {
-        header-row.push(grid.cell(x: i, y: y-start - 1)[*#text*])
-    }
+    // Number of "logical" columns for days, so ranges from 5 - 8
+    let colnum = int((col-array.len() - 1) / day-col-division)
+    // Actual number of columns in the resulting grid.
+    let real-colnum = col-array.len()
 
     // Setup of the grid rows. Each hour is separated into 5 minute segments,
     // meaning each hour has twelve rows.
     let hournum = end-hour - start-hour
+    // Array that contains the final sizing info for the whole grid.
     let row-array = (1fr,) * 12 * hournum
     // The header takes up six times as much height.
     row-array.insert(0, 6fr)
 
-    // Creates the cells for the time indications.
+    // This array holds the x value for the first column in each day. Later
+    // used to correctly position events.
+    let day-starting-x = (0, 1)
+    for i in range(1, colnum + 1) {
+        day-starting-x.push(1 + i * day-col-division)
+    }
+
+    // ======================= FINAL HOUR TEXT CELLS =========================
+    // These are the grid cells containing the hour timestamps on the left of
+    // the timetable.
     let time-cell-array = ()
     for i in range(0, hournum + 1) {
         let hour-text = if not am-pm-format { str(i + start-hour) } else {
@@ -214,30 +246,69 @@
             } else { 0.5pt } )[#v(hour-num-spacing) #hour-text]
         )
     }
+    // -----------------------------------------------------------------------
 
-    // ACTUAL CREATION OF THE CELLS FOR THE CONTENT
-    // Array for the content cells
-    let cells = ()
-    // Array for the grid cells that draw the hour guide lines.
-    let hour-line-cells = ()
-    // TODO: Actually use?
-    /*let hour-line-rows = ()
-    for i in range(1, end-hour - start-hour) {
-        hour-line-rows.push(i * 12 + y-start)
-    }*/
-    // The day by the x value in the grid.
-    let xpos = 1
-    // Number of the last row in the grid.
-    let day-end-row = row-array.len() + 12
-    // Number of days in the time table.
-    let daynum = day-array.len()
+    // ================= STARTING HOUR INDICATION LINE CELLS =================
+    // Here we create single span grid cells for each hour that together form
+    // the hour indication lines across the whole grid. Later when we create
+    // the events, all the hour marks that intersect events are deleted from
+    // this array so there won't be any collisions.
+    let hour-line-cells = (:)
+    let hour-y-values = ()
+    for yv in range(14, 12 * (hournum + 1), step: 12) {
+        // Hour line indications aren't drawn on the async day so we subtract
+        // by the columns per day to leave it out.
+        for xv in range(1, real-colnum - day-col-division) {
+            hour-line-cells.insert(str(xv) + "." + str(yv), grid.cell(
+                x: xv, y: yv, stroke: (top: hour-stroke)
+            )[])
+        }
+        hour-y-values.push(yv)
+    }
+    // -----------------------------------------------------------------------
+
+    // ====================== FINAL HEADER ROW ===============================
+    // Array of grid cells in the header row.
+    let header-row = ()
+    // Running x posision for the new cell to use.
+    let xval = 0
+    for (i, text) in header-texts.enumerate() {
+        // The time col has colspan 1, the other days all span the division
+        // number for parallel events.
+        let span = if i == 0 { 1 } else { day-col-division }
+        header-row.push(
+            grid.cell(x: xval, y: y-start - 1, colspan: span)[*#text*]
+        )
+        // We increase xval by the span to correctly place the next cell.
+        xval += span
+    }
+    // -----------------------------------------------------------------------
+
+    // ================ PARSING OF INPUT EVENTS TO DICT FORM =================
+    // Array of day arrays. In each day array are the dicts of events.
+    let week = ()
+
+    // Index by which we can get the first x position column from
+    // day-starting-x array.
+    let day-index = 1
+    // We create dictionary tuples for each event in each day.
     for day in day-array {
-        // Starting point to check for necessary hour lins to draw.
-        let start-y = y-start + 12
-        // Check if we are on the async day (necessary for not drawing hours
-        // bounds on that day).
-        let async-day = if asynchronous != () and xpos == daynum { true } else { false }
-        // Go through each entry and make the correct cell from it.
+        // This array holds all the dictionary events for the current day.
+        let dict-array = ()
+
+        // Starting x value for the day
+        let start-x = day-starting-x.at(day-index)
+
+        // Check if we are on the async day (necessary for not drawing the
+        // timestamps around the event text on that day).
+        let async-day = if asynchronous != () and day-index == colnum {
+            true
+        } else { false }
+
+        // Now we iterate through each event defined for the current day and
+        // create a dictionary representing it. The reason we make the new
+        // dictionary versions is because we need to iterate through the parsed
+        // data repeatedly and change the contents multiple times.
         for (start, end, color, content) in day {
             // First, any kind of input for the times is converted to a
             // timestring.
@@ -246,22 +317,18 @@
             } else if type(start) == int {
                 start = timeint-to-timestring(start)
             }
-            // Same for the end time.
             if type(end) == float {
                 end = timefloat-to-timestring(end)
             } else if type(end) == int {
                 end = timeint-to-timestring(end)
             }
+
             // Row that the cell has to be placed on.
-            let start-row = timestring-to-start-row(start, start-hour) + y-start - 1
+            let start-row = (
+                timestring-to-start-row(start, start-hour) + y-start - 1
+            )
             // Rowspan so the cell ends on the right row.
             let rownum = timestrings-to-rowspan(start, end, start-hour)
-
-            // Conform display time to am/pm time format if specified.
-            if am-pm-format {
-                start = sensible-timestring-to-nonsense-timestring(start)
-                end = sensible-timestring-to-nonsense-timestring(end)
-            }
 
             // Shows start and end times only on non async days and places them
             // either in their own lines or not depending on available height.
@@ -273,61 +340,226 @@
                 [#start\ #content\ #end]
             }
 
-            // This is the actual cell being added to the array.
-            cells.push(grid.cell(x: xpos, y: start-row, fill: color,
-                rowspan: rownum, stroke: stroke, content)
-            )
-            
-            // Creates the horizontal lines at the hour marks via empty cells
-            // with one stroke. NOTE: Can't use grid.hline because those
-            // override cell stroke.
-            if not async-day {
-                // Draw hour lins as long as we haven't hit the start of the
-                // entry.
-                while start-y < start-row {
-                    hour-line-cells.push(
-                        grid.cell(
-                            x: xpos, y: start-y, stroke: (top: hour-stroke)
-                        )[]
-                    )
-                    // Go to the next hour.
-                    start-y = start-y + 12
-                }
-                // Advance to after the entry.
-                start-y = start-row + rownum + 1
-                // Advance in single steps until we hit a full hour row again.
-                // This is necessary so hour lines don't get moved off the full
-                // hour based on the end time of the entry.
-                while calc.rem(start-y - y-start, 12) != 0 {
-                    start-y = start-y + 1
-                }
-            }
-        }
-        // After the last content cell of the day, we still need to draw hour
-        // lines up to the last hour. Same as before but doesn't need to worry
-        // about setting the correct start-y for the next entry.
-        if not async-day {
-            while start-y < day-end-row {
-                hour-line-cells.push(
-                    grid.cell(x: xpos, y: start-y, stroke: (top: hour-stroke))[]
+            // Add a new dictionary to the array for this day containing all
+            // relevant data for further processing later.
+            dict-array.push(
+                (start-row: start-row, end-row: start-row + rownum - 1,
+                    start-col: start-x, end-col: start-x + day-col-division - 1,
+                    rownum: rownum, colspan: day-col-division,
+                    color: color, content: content,
+                    intersects: (),
                 )
-                start-y = start-y + 12
+            )
+        }
+
+        // After the day is finished, add it to the array holding all the days.
+        week.push(dict-array)
+        day-index += 1
+    }
+    // -----------------------------------------------------------------------
+
+    // ====================== INTERSECTION PROCESSING ========================
+    // Since we have to manipulate the entries via week.at().at() to actually
+    // update their values, not just get back and edit copies, we use short
+    // variable names. di is equivalent to the previous day-index.
+    for di in range(colnum) {
+        // Starting x value for the day
+        let start-x = day-starting-x.at(di + 1)
+
+        // Here we do get a copy, but simply to have easier access to the data.
+        let dict-array = week.at(di)
+        // Look at each event in the day. Same here, these are copies just for
+        // easier access. cei is the index of the current event in the day
+        // array.
+        for (cei, event-dict) in dict-array.enumerate() {
+            // Now we go through all indices BEFORE the current one to check
+            // for intersections with previously defined events.
+            for i in range(cei) {
+                // Event dictionary that we are comparing against.
+                let compare-dict = dict-array.at(i)
+                // Starting row of the current event.
+                let event-start = event-dict.start-row
+                // End row of the event we are comparing with.
+                let compare-end = compare-dict.end-row
+                // If the current event starts before the current compared
+                // one ends, we have an intersection.
+                if event-start <= compare-end {
+                    // We add the intersection for both events.
+                    week.at(di).at(cei).intersects.push(i)
+                    week.at(di).at(i).intersects.push(cei)
+
+                    // ---------- RECURSIVE HELPER FUNCTION ------------------
+                    // Goes through a list of indices of events that are
+                    // involved in an intersection and finds all other events
+                    // they are each intersecting and so on.
+                    let traverse-intersections(acc, arr) = {
+                        for a in arr {
+                            if a not in acc {
+                                acc.push(a)
+                                traverse-intersections(acc, week.at(di).at(a).intersects)
+                            }
+                        }
+                        acc
+                    }
+                    // -------------------------------------------------------
+
+                    // The intersections in both events that are involved so
+                    // far.
+                    let cur-inters = (week.at(di).at(cei).intersects
+                        + week.at(di).at(i).intersects
+                    )
+
+                    // tii (total-intersecting-indices) contains all indices
+                    // that are in any way involved in an intersecting block of
+                    // events.
+                    let tii = traverse-intersections((), cur-inters)
+                    // We then deduplicate the array and sort it so we always
+                    // look at the earliest events first. This means that
+                    // parallel events will always cascade down from topleft to
+                    // bottom right in order of their starting times,
+                    // regardless of order of input in the source file.
+                    // TODO: Is this wanted? Or just without the whole key
+                    // thing?
+                    tii = tii.dedup().sorted(key: elem => {
+                        week.at(di).at(elem).start-row
+                    })
+                    // The number of events involved in the whole intersecting
+                    // block.
+                    let num-concurrent = tii.len()
+
+                    // Tracks how many events have been moved over into a
+                    // previous column to save space.
+                    let swap-num = 0
+                    // Tracks which event index is the currently furthest
+                    // "down" event for any parallel column. Starts with just
+                    // the first event in the whole block.
+                    let furthest-down = (tii.at(0),)
+                    // We go through all events in the intersecting block to
+                    // see which ones can be drawn under each other and which
+                    // have to be placed how far to the right in the parallel
+                    // coloumns.
+                    for (i, event-index) in tii.enumerate() {
+                        // Copy of the event we are looking at right now.
+                        let event = dict-array.at(event-index)
+
+                        // Tracks if a swap can be made.
+                        let swapped = false
+                        // If it can be made, tracks which column the event was
+                        // swapped into.
+                        let swap-i
+                        // Now look at all the most "down" placed events for
+                        // the parallel columns so far to see if the current
+                        // one can be swapped over into any previously opened
+                        // column.
+                        for (si, fi) in furthest-down.enumerate() {
+                            // If the event that was furthest "down" so far
+                            // doesn't intersect the event we are looking at
+                            // now, then we can swap the current one into that
+                            // column and stop looking further.
+                            if event.start-row > dict-array.at(fi).end-row {
+                                // Record there was a swap.
+                                swapped = true
+                                swap-num += 1
+                                // Update the now furthest "down" event in the
+                                // column.
+                                furthest-down.at(si) = event-index
+                                // Record where in the horizontal stack of
+                                // parallel columns the event ended up.
+                                week.at(di).at(event-index).insert(
+                                    "stack-pos", si
+                                )
+
+                                break
+                            }
+                        }
+
+                        // If no swap could be made, simply add the event as
+                        // the furthest down for a new parallel column and give
+                        // it a new hightest stack position.
+                        if not swapped {
+                            furthest-down.push(event-index)
+                            week.at(di).at(event-index).insert(
+                                "stack-pos", i - swap-num
+                            )
+                        }
+                    }
+
+                    // Now that we recorded all the stack positions and how
+                    // many swaps were made, we can calculate how many parallel
+                    // columns are needed to render the intersection block and
+                    // the resulting colspan for all the events involved.
+                    let num-parallels = num-concurrent - swap-num
+                    let cspan = int(day-col-division / num-parallels)
+
+                    // Then as the final step, we update the starting x
+                    // positions based on where in the stack an event is and
+                    // the colspan for all of them is the same.
+                    for event-index in tii {
+                        let sp = week.at(di).at(event-index).stack-pos
+                        week.at(di).at(event-index).start-col = (
+                            start-x + sp * cspan
+                        )
+                        week.at(di).at(event-index).colspan = cspan
+                    }
+                }
             }
         }
-        // Go over to the next day x value.
-        xpos = xpos + 1
     }
+    // =======================================================================
+
+    // =========== HOUR LINE PRUNING AND CREATING CELLS FROM DICTS ===========
+    // Now that all positions and dimensions are fixed, we go through the whole
+    // week again to first remove hour line indication cells where they collide
+    // with events and render the event dictionaries into proper grid cells.
+
+    // Array for the final grid cells.
+    let cells = ()
+    for dict-array in week {
+        for event-dict in dict-array {
+            // Pruning the hour guide line cells.
+            let start-x = event-dict.at("start-col")
+            let rangenum = event-dict.at("colspan")
+            for i in range(rangenum) {
+                let xv = start-x + i
+                for h in hour-y-values {
+                    let start-y = event-dict.at("start-row")
+                    if h >= start-y and h <= start-y + event-dict.at("rownum") {
+                        hour-line-cells.remove(
+                            // We need the default here since the loop tries
+                            // to remove hour lines even if they aren't
+                            // there due to day or hour limitations.
+                            str(xv) + "." + str(h), default: none
+                        )
+                    }
+                }
+            }
+
+            // This is the actual cell being added to the grid.
+            cells.push(grid.cell(x: event-dict.at("start-col"),
+                y: event-dict.at("start-row"),
+                fill: event-dict.at("color"),
+                rowspan: event-dict.at("rownum"),
+                colspan: event-dict.at("colspan"),
+                stroke: stroke,
+                event-dict.at("content"))
+            )
+        }
+    }
+    // -----------------------------------------------------------------------
+
+    // ============================= TITLE ===================================
     // Adding the actual title cell plus its' row info.
     if title != none {
         // The title row takes up three times height as much as the header.
         row-array.insert(0, auto)
-        header-row.push(grid.cell(x: 0, y: 0, colspan: colnum, stroke: none,
-            fill: none, inset: title-font-size * 0.55,
+        header-row.push(grid.cell(x: 0, y: 0, colspan: real-colnum,
+            stroke: none, fill: none, inset: title-font-size * 0.55,
             text(size: title-font-size, weight: "bold", title)
         ))
     }
+    // -----------------------------------------------------------------------
 
-    // FUNCTION OUTPUT
+    // ========================== FINAL GRID FILLING =========================
     rect(stroke: border, inset: margin, fill: background, width: width,
         height: height,
         grid(columns: col-array, rows: row-array,
@@ -337,25 +569,29 @@
                 center + horizon
             }, inset: 0.35em, stroke: (x, y) => if y == y-start - 1 {
                 0.5pt
-            } else {
+            } else if calc.rem(x - 1, day-col-division) == 0 {
+                (left: 0.5pt, rest: none)
+            } else if x == real-colnum - 1 {
                 (right: 0.5pt, rest: none)
             }, fill: (x, y) => if y < y-start or x == 0 {
                 info-fill
             } else {
                 empty-fill
             },
-            // Day names
+            // Title (if given) and day names
             ..header-row,
             // Bottom border of the whole time table.
             grid.hline(y: (hournum + 1) * 12 + y-start, stroke: 0.5pt),
             // Hour guidelines
-            ..hour-line-cells,
+            ..hour-line-cells.values(),
             // Time indication cells on the left of the time table.
             ..time-cell-array,
             // Actual content cells.
             ..cells
         )
     )
+    // -----------------------------------------------------------------------
 }
+
 // Alternative german name for the function.
 #let stundenplan(..args) = timetable(..args)

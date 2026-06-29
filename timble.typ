@@ -135,7 +135,8 @@
     height: auto,
 ) = context {
     // Internal number of columns per day to use for splitting into parallel
-    // events.
+    // events. If five or six stacks should be allowed, increase to 60 (large
+    // performance hit).
     let day-col-division = 12
 
     // Variable that tracks at which row the actual timeslots start.
@@ -155,11 +156,13 @@
                 final-size = final-size / 2 + (it.rowspan - 2) * 1pt
             }
             // If there are parallel events, also adjust the size.
-            if it.colspan < 12 {
+            if it.colspan < day-col-division {
                 // Subtracts from the size more for each added parralel layer.
                 // How strong the subtraction is can be controlled by the
                 // multiplier at the end of the line.
-                final-size = final-size - (12 / it.colspan * 1pt) * 1.5
+                final-size = (
+                    final-size - (day-col-division / it.colspan * 1pt) * 1.5
+                )
             }
             final-size
         } else {
@@ -344,10 +347,10 @@
             // relevant data for further processing later.
             dict-array.push(
                 (start-row: start-row, end-row: start-row + rownum - 1,
-                    start-col: start-x, end-col: start-x + day-col-division - 1,
+                    start-col: start-x,
+                    end-col: start-x + day-col-division - 1,
                     rownum: rownum, colspan: day-col-division,
-                    color: color, content: content,
-                    intersects: (),
+                    color: color, content: content, intersects: (),
                 )
             )
         }
@@ -365,6 +368,10 @@
     for di in range(colnum) {
         // Starting x value for the day
         let start-x = day-starting-x.at(di + 1)
+
+        // Dictionary for every block of intersections. We only keep the
+        // largest found blocks so using a key to identify them helps.
+        let intersection-blocks = (:)
 
         // Here we do get a copy, but simply to have easier access to the data.
         let dict-array = week.at(di)
@@ -396,7 +403,9 @@
                         for a in arr {
                             if a not in acc {
                                 acc.push(a)
-                                traverse-intersections(acc, week.at(di).at(a).intersects)
+                                traverse-intersections(
+                                    acc, week.at(di).at(a).intersects
+                                )
                             }
                         }
                         acc
@@ -418,90 +427,154 @@
                     // parallel events will always cascade down from topleft to
                     // bottom right in order of their starting times,
                     // regardless of order of input in the source file.
-                    // TODO: Is this wanted? Or just without the whole key
-                    // thing?
                     tii = tii.dedup().sorted(key: elem => {
                         week.at(di).at(elem).start-row
                     })
-                    // The number of events involved in the whole intersecting
-                    // block.
-                    let num-concurrent = tii.len()
 
-                    // Tracks how many events have been moved over into a
-                    // previous column to save space.
-                    let swap-num = 0
-                    // Tracks which event index is the currently furthest
-                    // "down" event for any parallel column. Starts with just
-                    // the first event in the whole block.
-                    let furthest-down = (tii.at(0),)
-                    // We go through all events in the intersecting block to
-                    // see which ones can be drawn under each other and which
-                    // have to be placed how far to the right in the parallel
-                    // coloumns.
-                    for (i, event-index) in tii.enumerate() {
-                        // Copy of the event we are looking at right now.
-                        let event = dict-array.at(event-index)
+                    // How many events were part of the same block previously
+                    // calculated. We only update it if this pass got more
+                    // total events.
+                    let prev-len = intersection-blocks.at(
+                        str(tii.at(0)), default: ()
+                    ).len()
 
-                        // Tracks if a swap can be made.
-                        let swapped = false
-                        // If it can be made, tracks which column the event was
-                        // swapped into.
-                        let swap-i
-                        // Now look at all the most "down" placed events for
-                        // the parallel columns so far to see if the current
-                        // one can be swapped over into any previously opened
-                        // column.
-                        for (si, fi) in furthest-down.enumerate() {
-                            // If the event that was furthest "down" so far
-                            // doesn't intersect the event we are looking at
-                            // now, then we can swap the current one into that
-                            // column and stop looking further.
-                            if event.start-row > dict-array.at(fi).end-row {
-                                // Record there was a swap.
-                                swapped = true
-                                swap-num += 1
-                                // Update the now furthest "down" event in the
-                                // column.
-                                furthest-down.at(si) = event-index
-                                // Record where in the horizontal stack of
-                                // parallel columns the event ended up.
-                                week.at(di).at(event-index).insert(
-                                    "stack-pos", si
-                                )
-
-                                break
-                            }
-                        }
-
-                        // If no swap could be made, simply add the event as
-                        // the furthest down for a new parallel column and give
-                        // it a new hightest stack position.
-                        if not swapped {
-                            furthest-down.push(event-index)
-                            week.at(di).at(event-index).insert(
-                                "stack-pos", i - swap-num
-                            )
-                        }
-                    }
-
-                    // Now that we recorded all the stack positions and how
-                    // many swaps were made, we can calculate how many parallel
-                    // columns are needed to render the intersection block and
-                    // the resulting colspan for all the events involved.
-                    let num-parallels = num-concurrent - swap-num
-                    let cspan = int(day-col-division / num-parallels)
-
-                    // Then as the final step, we update the starting x
-                    // positions based on where in the stack an event is and
-                    // the colspan for all of them is the same.
-                    for event-index in tii {
-                        let sp = week.at(di).at(event-index).stack-pos
-                        week.at(di).at(event-index).start-col = (
-                            start-x + sp * cspan
-                        )
-                        week.at(di).at(event-index).colspan = cspan
+                    // We update our current records of intersection blocks in
+                    // the day.
+                    if prev-len < tii.len() {
+                        intersection-blocks.insert(str(tii.at(0)), tii)
                     }
                 }
+            }
+        }
+
+        // Now we compiled every index of the events involved in each
+        // intersection block for that day and go through them individually.
+        for tii in intersection-blocks.values() {
+            // The number of events involved in the whole intersecting
+            // block.
+            let num-concurrent = tii.len()
+
+            // Tracks how many events have been moved over into a
+            // previous column to save space.
+            let swap-num = 0
+            // Tracks which event index is the currently furthest
+            // "down" event for any parallel column. Starts with just
+            // the first event in the whole block.
+            let furthest-down = ()
+            // Tracks how many day internal columns there are in total.
+            let stack-num = 0
+            // We go through all events in the intersecting block to
+            // see which ones can be drawn under each other and which
+            // have to be placed how far to the right in the parallel
+            // coloumns.
+            for (i, event-index) in tii.enumerate() {
+                // Copy of the event we are looking at right now.
+                let event = dict-array.at(event-index)
+
+                // Tracks if a swap can be made.
+                let swapped = false
+                // Now look at all the most "down" placed events for
+                // the parallel columns so far to see if the current
+                // one can be swapped over into any previously opened
+                // column.
+                for (si, fi) in furthest-down.enumerate() {
+                    // If the event that was furthest "down" so far
+                    // doesn't intersect the event we are looking at
+                    // now, then we can swap the current one into that
+                    // column and stop looking further.
+                    if event.start-row > dict-array.at(fi).end-row {
+                        // Record there was a swap.
+                        swapped = true
+                        swap-num += 1
+                        // Record where in the horizontal stack of
+                        // parallel columns the event ended up.
+                        week.at(di).at(event-index).insert(
+                            "stack-pos", si
+                        )
+                        week.at(di).at(event-index).insert(
+                            "swapped", swapped
+                        )
+                        week.at(di).at(event-index).insert(
+                            "old-furthest", furthest-down
+                        )
+                        // Update the now furthest "down" event in the
+                        // column.
+                        furthest-down.at(si) = event-index
+                        week.at(di).at(event-index).insert(
+                            "new-furthest", furthest-down
+                        )
+
+                        break
+                    }
+                }
+
+                // If no swap could be made, simply add the event as
+                // the furthest down for a new parallel column and give
+                // it a new highest stack position.
+                if not swapped {
+                    furthest-down.push(event-index)
+                    week.at(di).at(event-index).insert(
+                        "stack-pos", i - swap-num
+                    )
+                    week.at(di).at(event-index).insert(
+                        "swapped", swapped
+                    )
+                    stack-num = stack-num + 1
+                }
+            }
+
+            // Now that we recorded all the stack positions and how
+            // many swaps were made, we can calculate how many parallel
+            // columns are needed to render the intersection block and
+            // the resulting single width colspan for all the events
+            // involved.
+            let num-parallels = num-concurrent - swap-num
+            let base-cspan = int(day-col-division / num-parallels)
+
+            // Then as the final step, we update the starting x
+            // positions based on where in the stack an event is and
+            // set the colspan to be maximised without intersecting
+            // events on other columns.
+            for event-index in tii {
+                let sp = week.at(di).at(event-index).stack-pos
+                week.at(di).at(event-index).start-col = (
+                    start-x + sp * base-cspan
+                )
+
+                // sw is stack width, how many internal columns the
+                // current event should end up spanning.
+                let sw = 1
+
+                // Check successive stack numbers to see if any of them
+                // are open for the current event to expand into. As long as
+                // no blocking event in further stacks is detected, the stack
+                // width is expanded. Once a block is detected, both loops are
+                // broken and the final colspan value is set.
+                let i = sp + 1
+                let blocked = false
+                while i < stack-num {
+                    for compare-index in tii.filter(
+                        ei => week.at(di).at(ei).stack-pos == i
+                    ) {
+                        let e = week.at(di).at(event-index)
+                        let c = week.at(di).at(compare-index)
+                        if not (e.start-row > c.end-row
+                            or e.end-row < c.start-row
+                        ) {
+                            blocked = true
+                            break
+                        }
+                    }
+
+                    if blocked {
+                        break
+                    }
+
+                    sw = sw + 1
+                    i = i + 1
+                }
+
+                week.at(di).at(event-index).colspan = base-cspan * sw
             }
         }
     }

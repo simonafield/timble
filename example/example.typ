@@ -1,12 +1,12 @@
-#import "@preview/timble:1.0.0": *
+#import "@preview/timble:1.1.0": *
 #set page(paper: "a4", margin: 1cm, flipped: true)
 
 #timetable(title: "WiSe 25/26", font: "Liberation Sans", base-font-size: 13pt,
     start-hour: 9, end-hour: 16,
     monday: (
         (10.15, 11.45, red, [Sequential Music _R302_]),
-        (12.15, 13.45, aqua, [Developmental diagnostics _F35_]),
-        (13.45, 14.15, gray, [_Lunch_]),
+        (12.15, 13.45, aqua, [Develop-\ mental diagnostics _F35_]),
+        (13.30, 14.30, gray, [_Lunch Window_]),
         (14.15, 15.45, red, [Cultural reflections in MU _L212_]),
     ),
     tuesday: (

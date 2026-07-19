@@ -101,6 +101,9 @@ Styling parameters:
   How to label the different days in the timetable as well as the time
   indication column. Provide your own array with strings to adjust for your
   language.
+- `hide-empty-weekdays` (default `false`): Call with `true` to exclude all
+  empty weekdays from the timetable. Use this to have the timetable only show
+  days that you defined events for.
 - `time-prefix` (default `""`): Optionally set a prefix to print infront of the
   time indications.
     - `time-suffix` (default `""`): A suffix option for time indications is

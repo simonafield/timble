@@ -115,6 +115,7 @@
     info-names: ("Time", "Monday", "Tuesday", "Wednesday", "Thursday",
         "Friday", "Saturday", "Sunday", "Asynchronous"
     ),
+    hide-empty-weekdays: false,
     time-prefix: "",
     time-suffix: "",
     am-pm-format: false,
@@ -176,42 +177,57 @@
     }
 
     // ============================ GRID SETUP ===============================
-    // Array that holds the column sizes for the grid.
-    // The five weekdays are always shown, thus 5 is the starting point.
-    let col-array = (1fr,) * 5 * day-col-division
-    // This is the column for the hour indications.
-    col-array.insert(0, (day-col-division / 2) * 1fr)
-
     // Array that holds the names to use for the header info.
-    let header-texts = info-names.slice(0, 6)
+    let header-texts = ()
     // Array that holds the actual contents to be parsed into cells later.
-    let day-array = (monday, tuesday, wednesday, thursday, friday)
+    let day-array = ()
+    if hide-empty-weekdays {
+        header-texts.push(info-names.at(0))
+        if monday != () {
+            day-array.push(monday)
+            header-texts.push(info-names.at(1))
+        }
+        if tuesday != () {
+            day-array.push(tuesday)
+            header-texts.push(info-names.at(2))
+        }
+        if wednesday != () {
+            day-array.push(wednesday)
+            header-texts.push(info-names.at(3))
+        }
+        if thursday != () {
+            day-array.push(thursday)
+            header-texts.push(info-names.at(4))
+        }
+        if friday != () {
+            day-array.push(friday)
+            header-texts.push(info-names.at(5))
+        }
+    } else {
+        day-array = (monday, tuesday, wednesday, thursday, friday)
+        header-texts = info-names.slice(0, 6)
+    }
 
     // Adding the necessary things if the weekend is included.
     if saturday != () {
-        // For each added day, we need the number of columns added that a day
-        // is split into.
-        for _ in range(day-col-division) {
-            col-array.push(1fr)
-        }
         header-texts.push(info-names.at(6))
         day-array.push(saturday)
     }
     if sunday != () {
-        for _ in range(day-col-division) {
-            col-array.push(1fr)
-        }
         header-texts.push(info-names.at(7))
         day-array.push(sunday)
     }
     // Same for the async column
     if asynchronous != () {
-        for _ in range(day-col-division) {
-            col-array.push(1fr)
-        }
         header-texts.push(info-names.at(8))
         day-array.push(asynchronous)
     }
+
+    // Array that holds the column sizes for the grid.
+    // The five weekdays are always shown, thus 5 is the starting point.
+    let col-array = (1fr,) * day-array.len() * day-col-division
+    // This is the column for the hour indications.
+    col-array.insert(0, (day-col-division / 2) * 1fr)
 
     // Number of "logical" columns for days, so ranges from 5 - 8
     let colnum = int((col-array.len() - 1) / day-col-division)
@@ -258,10 +274,11 @@
     // this array so there won't be any collisions.
     let hour-line-cells = (:)
     let hour-y-values = ()
+    let async-reduction = if asynchronous != () { day-col-division } else { 0 }
     for yv in range(14, 12 * (hournum + 1), step: 12) {
         // Hour line indications aren't drawn on the async day so we subtract
         // by the columns per day to leave it out.
-        for xv in range(1, real-colnum - day-col-division) {
+        for xv in range(1, real-colnum - async-reduction) {
             hour-line-cells.insert(str(xv) + "." + str(yv), grid.cell(
                 x: xv, y: yv, stroke: (top: hour-stroke)
             )[])

@@ -3,7 +3,7 @@ Draw and style precise time tables with ease.
 
 ## Example
 ```typst
-#import "@preview/timble:1.2.0": *
+#import "@preview/timble:1.2.1": *
 #set page(paper: "a4", margin: 1cm, flipped: true)
 
 #timetable(title: "WiSe 25/26", font: "Liberation Sans", base-font-size: 13pt,
@@ -35,7 +35,7 @@ Draw and style precise time tables with ease.
 ![Example output of timble](./example/example.png)
 
 ## Quick overview
-- Import via `#import "@preview/timble:1.2.0"`.
+- Import via `#import "@preview/timble:1.2.1"`.
 - Draw precise timetables with `#timetable()`:
     - Define your schedule by setting the parameters `monday` through `sunday`
       (with an option for `asynchronous` as well).
@@ -57,7 +57,7 @@ Draw and style precise time tables with ease.
 
 ## Usage
 ### Import
-`#import "@preview/timble:1.2.0": *`
+`#import "@preview/timble:1.2.1": *`
 
 ### Functionality
 
@@ -109,7 +109,9 @@ Styling parameters:
     - `time-suffix` (default `""`): A suffix option for time indications is
       also available.
 - `am-pm-format` (default `false`): Whether to print times in AM/PM format
-  instead of a sensible one.
+  instead of 24-hour format.
+    - _Bug notice:_ Versions `1.1.0` and `1.2.0` of the package wrongly ignore
+      this parameter. Fixed in `1.2.1`.
 - `info-fill` (default `rgb("ececec")`): What color to fill the timetables
   info fields with (day names and hour column).
 - `empty-fill` (default `none`): What color to fill empty time with.
@@ -146,7 +148,7 @@ If you want to use the package locally, you have two options:
    [official documentation](https://github.com/typst/packages?tab=readme-ov-file#local-packages)
    for where to find and create a namespace. Then simply import the package
    from that namespace. The following example assumes a namespace named `local`
-   to be used: `#import "@local/timble:1.2.0": *`
+   to be used: `#import "@local/timble:1.2.1": *`
 
    This makes the package available anywhere on your system via the namespace
    import.
@@ -156,3 +158,11 @@ If you want to use the package locally, you have two options:
    
    This method will make the package available only to files that you directly
    copy the source file next to.
+
+## Known bugs in published package versions
+Any bugs found in published package versions are recorded here. If you notice
+one of the following problems, you likely need to switch your used version:
+
+- Bug: `am-pm-format` parameter being ignored by the package.
+    - Affected versions: `1.1.0` and `1.2.0`
+    - Fixed in version: `1.2.1`

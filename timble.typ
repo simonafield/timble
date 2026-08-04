@@ -350,6 +350,12 @@
             // Rowspan so the cell ends on the right row.
             let rownum = timestrings-to-rowspan(start, end, start-hour)
 
+            // Conform display time to am/pm time format if specified.
+            if am-pm-format {
+                start = sensible-timestring-to-nonsense-timestring(start)
+                end = sensible-timestring-to-nonsense-timestring(end)
+            }
+
             // Shows start and end times only on non async days and places them
             // either in their own lines or not depending on available height.
             let content = if async-day {

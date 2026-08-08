@@ -9,3 +9,7 @@ repository = "https://github.com/Mambouna/timble"
 keywords = ["timetable", "timing", "time", "table", "chart", "charts", "diagram", "diagrams"]
 categories = ["visualization", "utility"]
 exclude = ["example"]
+
+[template]
+path = "example"
+entrypoint = "example.typ"

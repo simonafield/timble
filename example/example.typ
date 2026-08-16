@@ -1,4 +1,4 @@
-#import "@preview/timble:1.2.1": *
+#import "@preview/timble:1.3.0": *
 #set page(paper: "a4", margin: 1cm, flipped: true)
 
 #timetable(title: "WiSe 25/26", font: "Liberation Sans", base-font-size: 13pt,
